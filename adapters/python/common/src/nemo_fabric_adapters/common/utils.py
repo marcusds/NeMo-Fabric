@@ -11,6 +11,7 @@ import os
 import re
 import sys
 import uuid
+from collections.abc import Mapping
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any
@@ -259,20 +260,56 @@ def native_telemetry_config(payload: dict[str, Any]) -> dict[str, Any]:
     return config if isinstance(config, dict) else {}
 
 
-def relay_request_context(request_id: str) -> tuple[Any, dict[str, str]]:
-    """Use a UUID request ID as Relay's propagated root and preserve metadata."""
+def session_root_id(context: Mapping[str, Any] | None) -> str | None:
+    """Return the caller's ``session_id`` when it is a UUID, else ``None``.
+
+    A caller whose work spans several invocations — a chat turn at a time, say —
+    identifies the conversation here. A non-UUID value is ignored rather than coerced:
+    Relay roots are UUIDs, and deriving one would group turns under an identity the
+    caller never chose.
+    """
+
+    if not context:
+        return None
+    candidate = context.get("session_id")
+    if not isinstance(candidate, str):
+        return None
+    try:
+        return str(uuid.UUID(candidate))
+    except ValueError:
+        return None
+
+
+def relay_request_context(
+    request_id: str,
+    session_id: str | None = None,
+) -> tuple[Any, dict[str, str]]:
+    """Root Relay's propagation at the session and parent it at the request.
+
+    Relay derives ATIF session identity from the propagated root, so a root that changes
+    per request makes every invocation its own session. A caller supplying ``session_id``
+    gets one session spanning its requests, each keeping its own trajectory. Without one
+    the root falls back to the request, which is the behaviour from before sessions were
+    propagated.
+    """
 
     metadata = {"nemo_fabric_request_id": request_id}
     try:
-        request_uuid = str(uuid.UUID(request_id))
+        request_uuid: str | None = str(uuid.UUID(request_id))
     except ValueError:
+        request_uuid = None
+
+    root_uuid = session_id or request_uuid
+    if root_uuid is None:
         return nullcontext(), metadata
+    if session_id is not None:
+        metadata["nemo_fabric_session_id"] = session_id
 
     from nemo_relay import PropagationContext
     from nemo_relay import create_scope_stack_from_propagation
     from nemo_relay import use_scope_stack
 
-    propagation = PropagationContext(request_uuid, root_uuid=request_uuid)
+    propagation = PropagationContext(request_uuid or root_uuid, root_uuid=root_uuid)
     stack = create_scope_stack_from_propagation(propagation)
     return use_scope_stack(stack), metadata
 
