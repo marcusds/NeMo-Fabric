@@ -264,18 +264,19 @@ def native_telemetry_config(payload: dict[str, Any]) -> dict[str, Any]:
 SESSION_ROOT_CONTEXT_KEY = "relay_session_root"
 
 
+def _uuid_or_none(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except ValueError:
+        return None
+
+
 def session_root_id(context: Mapping[str, Any] | None) -> str | None:
     """Return the caller's Relay session root, ignoring a non-UUID value."""
 
-    if not context:
-        return None
-    candidate = context.get(SESSION_ROOT_CONTEXT_KEY)
-    if not isinstance(candidate, str):
-        return None
-    try:
-        return str(uuid.UUID(candidate))
-    except ValueError:
-        return None
+    return _uuid_or_none(context.get(SESSION_ROOT_CONTEXT_KEY)) if context else None
 
 
 def relay_request_context(
@@ -285,20 +286,19 @@ def relay_request_context(
     """Root Relay's propagation at the session and parent it at the request.
 
     Relay takes ATIF session identity from the root, so without a session root each
-    request becomes its own session.
+    request becomes its own session. Relay rejects a non-UUID root, so one is dropped
+    here rather than raised from inside telemetry setup.
     """
 
     metadata = {"nemo_fabric_request_id": request_id}
-    try:
-        request_uuid: str | None = str(uuid.UUID(request_id))
-    except ValueError:
-        request_uuid = None
+    request_uuid = _uuid_or_none(request_id)
+    session_uuid = _uuid_or_none(session_root)
 
-    root_uuid = session_root or request_uuid
+    root_uuid = session_uuid or request_uuid
     if root_uuid is None:
         return nullcontext(), metadata
-    if session_root is not None:
-        metadata["nemo_fabric_session_root"] = session_root
+    if session_uuid is not None:
+        metadata["nemo_fabric_session_root"] = session_uuid
 
     from nemo_relay import PropagationContext
     from nemo_relay import create_scope_stack_from_propagation
