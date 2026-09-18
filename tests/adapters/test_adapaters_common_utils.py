@@ -115,7 +115,7 @@ def test_relay_request_context_roots_at_the_session(monkeypatch: pytest.MonkeyPa
     propagation_context.assert_called_once_with(REQUEST_UUID, root_uuid=SESSION_UUID)
     assert metadata == {
         "nemo_fabric_request_id": REQUEST_UUID,
-        "nemo_fabric_session_id": SESSION_UUID,
+        "nemo_fabric_session_root": SESSION_UUID,
     }
     assert used_stacks[0].root_uuid == SESSION_UUID
     assert used_stacks[0].parent_uuid == REQUEST_UUID
@@ -156,9 +156,10 @@ def test_two_requests_share_one_session_root(monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.parametrize(
     ("context", "expected"),
     [
-        ({"session_id": SESSION_UUID}, SESSION_UUID),
-        ({"session_id": "agent-session-TnDtpPhPHX6SMh4xt9K9m4"}, None),
-        ({"session_id": 7}, None),
+        ({common_utils.SESSION_ROOT_CONTEXT_KEY: SESSION_UUID}, SESSION_UUID),
+        ({common_utils.SESSION_ROOT_CONTEXT_KEY: "agent-session-TnDtpPhP"}, None),
+        ({common_utils.SESSION_ROOT_CONTEXT_KEY: 7}, None),
+        ({"session_id": SESSION_UUID}, None),
         ({}, None),
         (None, None),
     ],

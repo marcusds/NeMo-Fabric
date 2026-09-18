@@ -260,18 +260,25 @@ def native_telemetry_config(payload: dict[str, Any]) -> dict[str, Any]:
     return config if isinstance(config, dict) else {}
 
 
+#: Run-request context key naming the Relay session a caller's invocations belong to.
+#: Deliberately not ``session_id``: adapters already surface harness session ids of their
+#: own, and a bare name would silently regroup the traces of a caller that happens to send
+#: one for unrelated reasons.
+SESSION_ROOT_CONTEXT_KEY = "relay_session_root"
+
+
 def session_root_id(context: Mapping[str, Any] | None) -> str | None:
-    """Return the caller's ``session_id`` when it is a UUID, else ``None``.
+    """Return the caller's Relay session root when it is a UUID, else ``None``.
 
     A caller whose work spans several invocations — a chat turn at a time, say —
-    identifies the conversation here. A non-UUID value is ignored rather than coerced:
-    Relay roots are UUIDs, and deriving one would group turns under an identity the
-    caller never chose.
+    identifies the conversation under :data:`SESSION_ROOT_CONTEXT_KEY`. A non-UUID value
+    is ignored rather than coerced: Relay roots are UUIDs, and deriving one would group
+    turns under an identity the caller never chose.
     """
 
     if not context:
         return None
-    candidate = context.get("session_id")
+    candidate = context.get(SESSION_ROOT_CONTEXT_KEY)
     if not isinstance(candidate, str):
         return None
     try:
@@ -282,15 +289,15 @@ def session_root_id(context: Mapping[str, Any] | None) -> str | None:
 
 def relay_request_context(
     request_id: str,
-    session_id: str | None = None,
+    session_root: str | None = None,
 ) -> tuple[Any, dict[str, str]]:
     """Root Relay's propagation at the session and parent it at the request.
 
     Relay derives ATIF session identity from the propagated root, so a root that changes
-    per request makes every invocation its own session. A caller supplying ``session_id``
-    gets one session spanning its requests, each keeping its own trajectory. Without one
-    the root falls back to the request, which is the behaviour from before sessions were
-    propagated.
+    per request makes every invocation its own session. A caller supplying
+    ``session_root`` gets one session spanning its requests, each keeping its own
+    trajectory. Without one the root falls back to the request, which is the behaviour
+    from before sessions were propagated.
     """
 
     metadata = {"nemo_fabric_request_id": request_id}
@@ -299,11 +306,11 @@ def relay_request_context(
     except ValueError:
         request_uuid = None
 
-    root_uuid = session_id or request_uuid
+    root_uuid = session_root or request_uuid
     if root_uuid is None:
         return nullcontext(), metadata
-    if session_id is not None:
-        metadata["nemo_fabric_session_id"] = session_id
+    if session_root is not None:
+        metadata["nemo_fabric_session_root"] = session_root
 
     from nemo_relay import PropagationContext
     from nemo_relay import create_scope_stack_from_propagation

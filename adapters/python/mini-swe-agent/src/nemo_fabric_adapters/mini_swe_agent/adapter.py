@@ -190,7 +190,7 @@ class MiniSweAgentRuntime:
         self,
         task: str,
         context: contract.RuntimeContext,
-        session_id: str | None = None,
+        session_root: str | None = None,
     ) -> tuple[dict[str, Any], list[str]]:
         if self._telemetry_quarantine is not None:
             self._agent.begin_relay_invocation(None)
@@ -211,7 +211,7 @@ class MiniSweAgentRuntime:
             ) as activation_report:
                 common_utils.reject_inherited_relay_plugin_config(activation_report)
                 request_context, metadata = common_utils.relay_request_context(
-                    context.request_id, session_id
+                    context.request_id, session_root
                 )
                 metadata["nemo_fabric_invocation_id"] = context.invocation_id
                 with (
