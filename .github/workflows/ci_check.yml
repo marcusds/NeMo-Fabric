@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           repository: NousResearch/hermes-agent
-          ref: 29112bef099274229cadff79cdff7bf7b99c4b77
+          ref: e6989484caa29d4b3c0ee09a539dfca3ec1fabcf
           path: external/hermes-agent
           persist-credentials: false
 
