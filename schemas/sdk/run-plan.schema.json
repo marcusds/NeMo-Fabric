@@ -1992,6 +1992,13 @@
               "description": "Environment-variable-backed HTTP headers.",
               "type": "object"
             },
+            "header_file": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "File-backed HTTP headers.",
+              "type": "object"
+            },
             "headers": {
               "additionalProperties": {
                 "type": "string"
@@ -2171,6 +2178,13 @@
                 "type": "string"
               },
               "description": "Environment-variable-backed stream headers.",
+              "type": "object"
+            },
+            "header_file": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "File-backed stream headers.",
               "type": "object"
             },
             "headers": {
@@ -2455,6 +2469,13 @@
             "type": "string"
           },
           "description": "Environment-variable-backed OTLP headers.",
+          "type": "object"
+        },
+        "header_file": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "File-backed OTLP headers.",
           "type": "object"
         },
         "headers": {
