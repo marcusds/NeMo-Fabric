@@ -1278,6 +1278,7 @@ def test_relay_observability_rejects_legacy_openinference_section():
         ("transport", "http_binary"),
         ("headers", {"authorization": "test"}),
         ("header_env", {"authorization": "OTEL_AUTHORIZATION"}),
+        ("header_file", {"authorization": "/run/secrets/otel-token"}),
         ("resource_attributes", {"deployment.environment": "test"}),
         ("service_name", "fabric"),
         ("service_namespace", "platform"),
@@ -1302,16 +1303,18 @@ def test_relay_opentelemetry_preserves_unknown_future_fields():
 
 
 @pytest.mark.parametrize(
-    ("headers", "header_env"),
+    ("headers", "header_env", "header_file"),
     [
-        ({}, {}),
-        ({"authorization": "Bearer test"}, {}),
-        ({}, {"authorization": "RELAY_AUTHORIZATION"}),
+        ({}, {}, {}),
+        ({"authorization": "Bearer test"}, {}, {}),
+        ({}, {"authorization": "RELAY_AUTHORIZATION"}, {}),
+        ({}, {}, {"authorization": "/run/secrets/relay-token"}),
     ],
 )
 def test_relay_atof_stream_sink_header_maps_round_trip(
     headers: dict[str, str],
     header_env: dict[str, str],
+    header_file: dict[str, str],
 ):
     config = RelayAtofConfig(
         enabled=True,
@@ -1320,6 +1323,7 @@ def test_relay_atof_stream_sink_header_maps_round_trip(
                 url="https://example.test/events",
                 headers=headers,
                 header_env=header_env,
+                header_file=header_file,
             )
         ],
     )
@@ -1328,6 +1332,7 @@ def test_relay_atof_stream_sink_header_maps_round_trip(
     sink = mapping["sinks"][0]
     assert sink.get("headers", {}) == headers
     assert sink.get("header_env", {}) == header_env
+    assert sink.get("header_file", {}) == header_file
     assert RelayAtofConfig.from_mapping(mapping).to_mapping() == mapping
 
 
@@ -1925,9 +1930,7 @@ def test_run_usage_rejects_token_counts_above_uint64(field):
         RunUsage.from_mapping({field: 1 << 64})
 
 
-@pytest.mark.parametrize(
-    "value", [-1, True, float("nan"), float("inf"), float("-inf")]
-)
+@pytest.mark.parametrize("value", [-1, True, float("nan"), float("inf"), float("-inf")])
 def test_run_usage_rejects_invalid_costs(value):
     with pytest.raises(FabricConfigError, match="finite"):
         RunUsage.from_mapping({"cost_usd": value})

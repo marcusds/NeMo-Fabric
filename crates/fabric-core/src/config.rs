@@ -1459,6 +1459,9 @@ pub enum RelayAtofSinkConfig {
         /// Environment-variable-backed stream headers.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         header_env: BTreeMap<String, String>,
+        /// File-backed stream headers.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        header_file: BTreeMap<String, String>,
         /// Request timeout in milliseconds.
         #[serde(default = "default_relay_timeout_millis")]
         #[schemars(range(max = u64::MAX))]
@@ -1542,6 +1545,9 @@ pub enum RelayAtifStorageConfig {
         /// Environment-variable-backed HTTP headers.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         header_env: BTreeMap<String, String>,
+        /// File-backed HTTP headers.
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        header_file: BTreeMap<String, String>,
         /// Request timeout in milliseconds.
         #[serde(default = "default_relay_timeout_millis")]
         #[schemars(range(max = u64::MAX))]
@@ -1638,6 +1644,9 @@ pub struct RelayOpenTelemetryEndpointConfig {
     /// Environment-variable-backed OTLP headers.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub header_env: BTreeMap<String, String>,
+    /// File-backed OTLP headers.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub header_file: BTreeMap<String, String>,
     /// OTLP resource attributes.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub resource_attributes: BTreeMap<String, String>,
@@ -2286,11 +2295,12 @@ pub(crate) fn validate_config(config: &FabricConfig) -> Result<()> {
 }
 
 fn relay_legacy_flat_otel_field(contains_field: impl Fn(&str) -> bool) -> Option<&'static str> {
-    const LEGACY_FLAT_OTEL_FIELDS: [&str; 15] = [
+    const LEGACY_FLAT_OTEL_FIELDS: [&str; 16] = [
         "attribute_mappings",
         "capture_content",
         "endpoint",
         "header_env",
+        "header_file",
         "headers",
         "instrumentation_scope",
         "mark_exclude_names",

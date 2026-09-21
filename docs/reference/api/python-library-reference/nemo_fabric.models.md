@@ -1253,6 +1253,7 @@ The model defines the following fields:
 | `transport` | `Literal['http_post', 'websocket', 'ndjson']` | No | `'http_post'` | — | — |
 | `headers` | `dict[str, str]` | No | `dict()` | — | — |
 | `header_env` | `dict[str, str]` | No | `dict()` | — | — |
+| `header_file` | `dict[str, str]` | No | `dict()` | — | — |
 | `timeout_millis` | `int` | No | `3000` | — | — |
 | `field_name_policy` | `Literal['preserve', 'replace_dots']` | No | `'preserve'` | — | — |
 | `name` | `str \| None` | No | `None` | — | — |
@@ -1478,6 +1479,7 @@ The model defines the following fields:
 | `endpoint` | `str` | No | `''` | — | — |
 | `headers` | `dict[str, str]` | No | `dict()` | — | — |
 | `header_env` | `dict[str, str]` | No | `dict()` | — | — |
+| `header_file` | `dict[str, str]` | No | `dict()` | — | — |
 | `timeout_millis` | `int` | No | `3000` | — | — |
 
 ---
@@ -1634,6 +1636,7 @@ The model defines the following fields:
 | `transport` | `Literal['http_binary', 'grpc']` | No | `'http_binary'` | — | — |
 | `headers` | `dict[str, str]` | No | `dict()` | — | — |
 | `header_env` | `dict[str, str]` | No | `dict()` | — | — |
+| `header_file` | `dict[str, str]` | No | `dict()` | — | — |
 | `resource_attributes` | `dict[str, str]` | No | `dict()` | — | — |
 | `service_name` | `str` | No | `'unknown_service'` | — | — |
 | `service_namespace` | `str \| None` | No | `None` | — | — |

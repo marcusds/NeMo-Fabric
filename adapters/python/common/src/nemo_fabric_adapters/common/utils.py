@@ -413,6 +413,7 @@ def validate_relay_observability_v3(plugin_config: dict[str, Any]) -> None:
         "capture_content",
         "endpoint",
         "header_env",
+        "header_file",
         "headers",
         "instrumentation_scope",
         "mark_exclude_names",
