@@ -278,7 +278,7 @@ def relay_request_context(request_id: str) -> tuple[Any, dict[str, str]]:
 
 
 def ambient_relay_plugin_config_paths() -> list[Path]:
-    """Return ambient user or project Relay plugin configs visible to Python."""
+    """Return the ambient user Relay plugin config visible to Python."""
 
     user_directory: Path | None = None
     xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
@@ -289,30 +289,10 @@ def ambient_relay_plugin_config_paths() -> list[Path]:
         if home is not None:
             user_directory = Path(home) / ".config" / "nemo-relay"
 
-    candidates: list[Path] = []
-    if user_directory is not None:
-        candidates.append(user_directory / "plugins.toml")
-    try:
-        cwd = Path.cwd()
-    except OSError:
-        cwd = None
-    if cwd is not None:
-        project_config = next(
-            (
-                ancestor / ".nemo-relay" / "plugins.toml"
-                for ancestor in (cwd, *cwd.parents)
-                if (ancestor / ".nemo-relay" / "plugins.toml").exists()
-            ),
-            None,
-        )
-        if project_config is not None:
-            candidates.append(project_config)
-
-    visible: list[Path] = []
-    for candidate in candidates:
-        if candidate.exists() and candidate not in visible:
-            visible.append(candidate)
-    return visible
+    if user_directory is None:
+        return []
+    user_config = user_directory / "plugins.toml"
+    return [user_config] if user_config.exists() else []
 
 
 def reject_ambient_relay_plugin_config() -> None:
@@ -324,13 +304,13 @@ def reject_ambient_relay_plugin_config() -> None:
     joined = ", ".join(str(path) for path in paths)
     raise RuntimeError(
         "NeMo Fabric cannot isolate Relay's Python plugin runtime from ambient "
-        f"user or project configuration: {joined}. Move or remove these files "
+        f"user configuration: {joined}. Move or remove these files "
         "before starting this Relay-enabled runtime."
     )
 
 
 def reject_inherited_relay_plugin_config(report: Any) -> None:
-    """Reject discovered user or project config while allowing system policy."""
+    """Reject discovered user config while allowing system policy."""
 
     if not isinstance(report, dict):
         raise RuntimeError("NeMo Relay did not return a plugin activation report")
@@ -367,7 +347,7 @@ def reject_inherited_relay_plugin_config(report: Any) -> None:
     )
     raise RuntimeError(
         "NeMo Fabric refuses Relay plugin configuration inherited from ambient "
-        f"user or project files: {details}"
+        f"user files: {details}"
     )
 
 
