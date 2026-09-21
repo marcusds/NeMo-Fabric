@@ -204,10 +204,10 @@ package, but neither installs Hermes Agent. Claude and Codex do not provide a
 importing this Python package.
 
 Python-backed Relay integrations require `nemo-relay>=0.9,<0.10`. NeMo Fabric
-does not merge user or workspace `plugins.toml` files with its runtime-owned
-configuration. Remove or relocate a user
-`plugins.toml` or the nearest `.nemo-relay/plugins.toml` before starting a
-Relay-enabled Deep Agents, Hermes Agent, or mini-SWE-agent runtime. System
+does not merge the user `plugins.toml` with its runtime-owned configuration.
+Remove or relocate the user `plugins.toml` before starting a Relay-enabled Deep
+Agents, Hermes Agent, or mini-SWE-agent runtime. Relay 0.8 dropped
+repository-local `.nemo-relay/plugins.toml`. System
 configuration in `/etc/nemo-relay/plugins.toml` remains administrator
 controlled.
 

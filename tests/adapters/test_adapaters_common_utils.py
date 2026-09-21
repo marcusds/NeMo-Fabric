@@ -484,28 +484,33 @@ def test_runtime_id_requires_runtime_context():
         common_utils.runtime_id({"runtime_context": {}})
 
 
-def test_ambient_relay_plugin_config_paths_prefers_xdg_and_nearest_project(
+def test_ambient_relay_plugin_config_paths_prefers_xdg_over_home(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     xdg = tmp_path / "xdg"
     home = tmp_path / "home"
-    project = tmp_path / "workspace"
-    nested = project / "repos" / "service"
     user_config = xdg / "nemo-relay" / "plugins.toml"
-    project_config = project / ".nemo-relay" / "plugins.toml"
     ignored_home_config = home / ".config" / "nemo-relay" / "plugins.toml"
-    for path in (user_config, project_config, ignored_home_config):
+    for path in (user_config, ignored_home_config):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("version = 1\n", encoding="utf-8")
-    nested.mkdir(parents=True)
     os.environ["XDG_CONFIG_HOME"] = str(xdg)
     os.environ["HOME"] = str(home)
-    monkeypatch.chdir(nested)
+    monkeypatch.chdir(tmp_path)
 
-    assert common_utils.ambient_relay_plugin_config_paths() == [
-        user_config,
-        project_config,
-    ]
+    assert common_utils.ambient_relay_plugin_config_paths() == [user_config]
+
+
+def test_ambient_relay_plugin_config_paths_ignores_project_local_files(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    project_config = tmp_path / ".nemo-relay" / "plugins.toml"
+    project_config.parent.mkdir()
+    project_config.write_text("version = 1\n", encoding="utf-8")
+    os.environ["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
+    monkeypatch.chdir(tmp_path)
+
+    assert common_utils.ambient_relay_plugin_config_paths() == []
 
 
 def test_ambient_relay_plugin_config_paths_falls_back_to_home(
@@ -551,13 +556,13 @@ def test_reject_ambient_relay_plugin_config_allows_clean_environment(
 def test_reject_ambient_relay_plugin_config_reports_paths(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    project_config = tmp_path / ".nemo-relay" / "plugins.toml"
-    project_config.parent.mkdir()
-    project_config.write_text("version = 1\n", encoding="utf-8")
+    user_config = tmp_path / "xdg" / "nemo-relay" / "plugins.toml"
+    user_config.parent.mkdir(parents=True)
+    user_config.write_text("version = 1\n", encoding="utf-8")
     os.environ["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(RuntimeError, match=re.escape(str(project_config))):
+    with pytest.raises(RuntimeError, match=re.escape(str(user_config))):
         common_utils.reject_ambient_relay_plugin_config()
 
 
@@ -599,7 +604,7 @@ def test_reject_inherited_relay_plugin_config_allows_system_policy():
     ],
 )
 def test_reject_inherited_relay_plugin_config_rejects_unmanaged_sources(message):
-    with pytest.raises(RuntimeError, match="user or project files"):
+    with pytest.raises(RuntimeError, match="user files"):
         common_utils.reject_inherited_relay_plugin_config(_inherited_report(message))
 
 
