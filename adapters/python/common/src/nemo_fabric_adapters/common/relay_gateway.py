@@ -176,16 +176,10 @@ def start_relay_gateway(
     if launch.anthropic_base_url is not None:
         command.extend(["--anthropic-base-url", launch.anthropic_base_url])
     try:
-        env = os.environ.copy()
-        # The explicit, runtime-owned plugins.toml is the only non-system
-        # plugin source for this gateway. Keep ambient project config out of
-        # concurrent Fabric runtimes without mutating process-global state.
-        env["NEMO_RELAY_CONFIG_SCOPE"] = "user"
         with launch.log_path.open("wb") as log_stream:
             process = subprocess.Popen(
                 command,
                 cwd=cwd,
-                env=env,
                 stdout=log_stream,
                 stderr=subprocess.STDOUT,
                 start_new_session=True,

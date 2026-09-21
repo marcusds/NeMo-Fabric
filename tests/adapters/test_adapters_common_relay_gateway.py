@@ -105,7 +105,6 @@ def test_relay_cli_contract_rejects_unparseable_output(monkeypatch, tmp_path):
 
 
 def test_start_relay_gateway_captures_logs_and_waits_for_health(monkeypatch, tmp_path):
-    os.environ["NEMO_RELAY_CONFIG_SCOPE"] = "project"
     executable = tmp_path / "nemo-relay"
     config_path = tmp_path / "relay-config" / "config.toml"
     config_path.parent.mkdir()
@@ -144,8 +143,6 @@ def test_start_relay_gateway_captures_logs_and_waits_for_health(monkeypatch, tmp
         "https://anthropic.example",
     ]
     assert mock_popen.call_args.kwargs["cwd"] == tmp_path
-    assert mock_popen.call_args.kwargs["env"]["NEMO_RELAY_CONFIG_SCOPE"] == "user"
-    assert os.environ["NEMO_RELAY_CONFIG_SCOPE"] == "project"
     assert mock_popen.call_args.kwargs["stderr"] is subprocess.STDOUT
     assert mock_popen.call_args.kwargs["start_new_session"] is True
     assert mock_popen.call_args.kwargs["stdout"].name == str(log_path)
