@@ -154,9 +154,9 @@ class HermesRuntime:
                     common_utils.reject_ambient_relay_plugin_config()
                 discover_plugins(force=True)
                 loaded_hermes_config = load_config()
-                # Hermes 0.12+ no longer discovers MCP tools as an import side effect
-                # (#16856). Fabric is a Hermes host: discover after config.yaml exists
-                # and before AIAgent resolves mcp-* toolsets.
+                # Hermes does not discover MCP tools as an import side effect (#16856).
+                # Fabric is a Hermes host: discover after config.yaml exists and
+                # before AIAgent resolves mcp-* toolsets.
                 # discover_mcp_tools uses a blocking 120s wait, wrapping it in
                 # asyncio.to_thread to avoid blocking the loop.
                 if self._hermes_config.get("mcp_servers"):

@@ -1811,7 +1811,7 @@ where
         Ok(version)
     } else {
         Err(serde::de::Error::custom(format!(
-            "NeMo Relay 0.7 requires observability config version {RELAY_OBSERVABILITY_VERSION}; found {version}"
+            "NeMo Relay requires observability config version {RELAY_OBSERVABILITY_VERSION}; found {version}"
         )))
     }
 }
@@ -1975,7 +1975,7 @@ pub(crate) fn validate_config(config: &FabricConfig) -> Result<()> {
                 return invalid_config(
                     "relay.observability.version",
                     format!(
-                        "NeMo Relay 0.7 requires observability config version {RELAY_OBSERVABILITY_VERSION}"
+                        "NeMo Relay requires observability config version {RELAY_OBSERVABILITY_VERSION}"
                     ),
                 );
             }
@@ -2020,7 +2020,7 @@ pub(crate) fn validate_config(config: &FabricConfig) -> Result<()> {
                 return invalid_config(
                     format!("relay.components.{index}.config.version"),
                     format!(
-                        "NeMo Relay 0.7 requires observability config version {RELAY_OBSERVABILITY_VERSION}"
+                        "NeMo Relay requires observability config version {RELAY_OBSERVABILITY_VERSION}"
                     ),
                 );
             }
@@ -4352,7 +4352,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .contains("NeMo Relay 0.7 requires observability config version 3")
+                .contains("NeMo Relay requires observability config version 3")
         );
     }
 
@@ -4404,7 +4404,7 @@ mod tests {
             ..RelayConfig::default()
         });
 
-        validate_config(&config).expect("Relay 0.7 defaults a missing version to v3");
+        validate_config(&config).expect("a missing observability version defaults to v3");
     }
 
     #[test]
@@ -4520,7 +4520,7 @@ mod tests {
             ..RelayConfig::default()
         });
 
-        validate_config(&config).expect("all Relay 0.7 endpoint types must pass");
+        validate_config(&config).expect("all Relay endpoint types must pass");
     }
 
     #[test]

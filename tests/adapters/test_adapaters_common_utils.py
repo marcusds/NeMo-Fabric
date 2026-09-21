@@ -975,8 +975,6 @@ async def test_relay_initializes_v3_atof_atif_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """Regress the initialize-only failure that prompted the Relay 0.6 pin."""
-
     from nemo_relay import plugin
 
     os.environ["XDG_CONFIG_HOME"] = str(tmp_path / "xdg")

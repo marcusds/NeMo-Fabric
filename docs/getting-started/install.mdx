@@ -213,7 +213,7 @@ controlled.
 
 #### Migrate Relay Observability Configurations from 0.6
 
-Relay 0.7 requires observability schema version 3. Move flat OpenTelemetry
+Relay 0.7 and later require observability schema version 3. Move flat OpenTelemetry
 exporter fields into entries under `opentelemetry.endpoints`. In the Python SDK,
 replace the removed `RelayOtlpConfig` model with `RelayOpenTelemetryConfig` and
 one or more `RelayOpenTelemetryEndpointConfig` entries.
