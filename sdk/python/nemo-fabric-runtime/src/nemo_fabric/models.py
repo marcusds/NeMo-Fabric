@@ -36,6 +36,7 @@ _LEGACY_FLAT_OTEL_FIELDS = frozenset(
         "capture_content",
         "endpoint",
         "header_env",
+        "header_file",
         "headers",
         "instrumentation_scope",
         "mark_exclude_names",
@@ -623,6 +624,9 @@ class RelayAtofStreamSinkConfig(FabricBaseModel):
     header_env: dict[str, str] = Field(
         default_factory=dict, exclude_if=lambda value: not value
     )
+    header_file: dict[str, str] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
     timeout_millis: int = 3000
     field_name_policy: Literal["preserve", "replace_dots"] = "preserve"
     name: str | None = None
@@ -665,6 +669,7 @@ class RelayHttpStorageConfig(FabricBaseModel):
     endpoint: str = ""
     headers: dict[str, str] = Field(default_factory=dict)
     header_env: dict[str, str] = Field(default_factory=dict)
+    header_file: dict[str, str] = Field(default_factory=dict)
     timeout_millis: int = 3000
 
 
@@ -706,6 +711,9 @@ class RelayOpenTelemetryEndpointConfig(FabricBaseModel):
         default_factory=dict, exclude_if=lambda value: not value
     )
     header_env: dict[str, str] = Field(
+        default_factory=dict, exclude_if=lambda value: not value
+    )
+    header_file: dict[str, str] = Field(
         default_factory=dict, exclude_if=lambda value: not value
     )
     resource_attributes: dict[str, str] = Field(
