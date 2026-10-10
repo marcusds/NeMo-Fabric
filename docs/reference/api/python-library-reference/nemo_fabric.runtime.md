@@ -109,7 +109,7 @@ Run one turn on this runtime.
 
 ``input`` and ``request`` are mutually exclusive. Runtime overrides are merged below invocation overrides from ``RunRequest``. Concurrent turns on the same runtime are rejected.
 
-Cancelling the awaiting task interrupts the turn by terminating the adapter host, then stops the runtime. The runtime is ``STOPPED`` afterwards and cannot run further turns.
+Cancelling the awaiting task interrupts the turn, then stops the runtime. An adapter that declares ``capabilities.cancellation`` is asked to cancel; otherwise, or if it does not stop promptly, the adapter host is terminated. The runtime is ``STOPPED`` afterwards and cannot run further turns.
 
 
 

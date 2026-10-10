@@ -140,6 +140,11 @@ one `stop` for each NeMo Fabric runtime.
   `AgentRunResult` from `invoke`.
 - Make `stop` safe after partial startup and failed invocation.
 - Isolate mutable state between independent runtimes.
+- Declare `capabilities.cancellation` only when `invoke` can be cancelled
+  mid-turn. The common host then cancels the invocation task, so `invoke` sees
+  `asyncio.CancelledError`, releases the turn's resources in `finally`, and
+  lets the error propagate (or returns `AgentRunStatus.CANCELLED`). Without the
+  capability, a caller that abandons a turn terminates the host process.
 - If the descriptor declares `capabilities.streaming`, implement
   `async invoke_openai_stream(request, context, emit)`. Execute the target exactly once,
   await `emit(chunk)` only for the `openai.chat_completions.chunk/v1` profile,

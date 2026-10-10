@@ -708,6 +708,9 @@
       "descriptor": {
         "adapter_id": "nvidia.fabric.langchain.deepagents",
         "adapter_kind": "python",
+        "capabilities": {
+          "cancellation": true
+        },
         "config": {
           "accepts": [
             "models",
@@ -984,7 +987,7 @@
         "name": "nemo-fabric-adapters-deepagents",
         "version": "0.5.0"
       },
-      "sha256": "819b1f9747af83011c98d5889c56dac9a735008b25e93bbc94c1cfde3050a44e",
+      "sha256": "ac5324319021532ebac4e4419a595e4ce5e5bd1566e3109772b37686301a8ae0",
       "source": "adapters/python/deepagents/deepagents.fabric-adapter.json"
     },
     "nvidia.fabric.mini-swe-agent": {

@@ -11,6 +11,7 @@ integration test in ``tests/e2e/test_deepagents.py``.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.machinery
 import json
 import os
@@ -58,6 +59,7 @@ def test_descriptor_declares_supported_normalized_config():
 
     assert descriptor["config"]["system_instruction_modes"] == ["replace"]
     assert "runtime.max_turns" in descriptor["config"]["accepts"]
+    assert descriptor["capabilities"]["cancellation"] is True
     assert descriptor["settings_schema"]["properties"]["deepagents"]["properties"][
         "backend"
     ] == {
@@ -182,6 +184,9 @@ def fake_sdks_fixture(monkeypatch):
         ):
             if "stream_error" in recorder:
                 raise recorder["stream_error"]
+            if "stream_started" in recorder:
+                recorder["stream_started"].set()
+                await asyncio.Event().wait()
             recorder["astream_agent"] = agent_name
             recorder["astream_recursion_limit"] = recorder.get(
                 "bound_recursion_limit"
@@ -520,6 +525,24 @@ async def test_single_invocation_normalizes_response_usage_and_thread(
     # system prompt must reach deepagents under the real param name (not ``instructions``)
     assert fake_sdks["create_kwargs"]["system_prompt"] == "be concise"
     assert "instructions" not in fake_sdks["create_kwargs"]
+
+
+async def test_cancelling_an_invocation_propagates_and_leaves_the_runtime_stoppable(
+    tmp_path, make_payload, fake_sdks
+):
+    fake_sdks["stream_started"] = asyncio.Event()
+    payload = make_payload(tmp_path)
+    runtime = adapter.DeepAgentsRuntime()
+    await runtime.start(lifecycle_start_payload(payload))
+    turn = asyncio.create_task(runtime.invoke(*lifecycle_invocation(payload)))
+    await asyncio.wait_for(fake_sdks["stream_started"].wait(), timeout=5)
+
+    turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await turn
+
+    await runtime.stop()
+    assert fake_sdks["saver_exits"] == 1
 
 
 @pytest.mark.parametrize(

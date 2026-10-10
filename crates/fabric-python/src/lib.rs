@@ -246,9 +246,9 @@ fn stop_runtime(py: Python<'_>, plan_json: String, runtime_json: String) -> PyRe
     to_json(&events)
 }
 
-/// Interrupt a runtime's in-flight invocation by killing its adapter host.
+/// Interrupt a runtime's in-flight invocation; false when none is in flight.
 #[pyfunction]
-fn cancel_runtime(py: Python<'_>, plan_json: String, runtime_json: String) -> PyResult<()> {
+fn cancel_runtime(py: Python<'_>, plan_json: String, runtime_json: String) -> PyResult<bool> {
     let plan = parse_run_plan(plan_json)?;
     let runtime = parse_runtime_handle(runtime_json)?;
     py.detach(|| nemo_fabric_core::cancel_runtime(&plan, &runtime))

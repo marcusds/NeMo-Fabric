@@ -91,6 +91,17 @@ generated
 [`openai-stream-record.schema.json`](https://github.com/NVIDIA/NeMo-Fabric/blob/main/schemas/adapter-contract/openai-stream-record.schema.json)
 chunk and explicit-end envelopes.
 
+If the adapter descriptor declares `capabilities.cancellation`, the common host
+cancels the running `invoke` (or `invoke_openai_stream`) task when the SDK
+caller abandons the turn. The adapter sees `asyncio.CancelledError` at its
+current `await`, releases what the turn holds in `finally` blocks, and lets the
+error propagate; the host then reports a `cancelled` result with the code
+`lifecycle_invocation_cancelled`. An adapter may instead catch the error and
+return its own `AgentRunResult` with `AgentRunStatus.CANCELLED`. Declare the
+capability only when cancelling mid-turn is safe, including any subprocess the
+turn spawned. Without it, the SDK terminates the host process to stop the turn,
+and a host that ignores a cancel for 5 seconds is terminated the same way.
+
 Adapters ask the host to validate the southbound config before `start`:
 
 ```python

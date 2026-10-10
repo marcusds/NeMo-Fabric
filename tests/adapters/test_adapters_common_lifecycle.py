@@ -958,3 +958,160 @@ def test_lifecycle_host_exits_without_traceback_on_keyboard_interrupt(monkeypatc
         lifecycle.serve(object)
 
     assert caught.value.code == 130
+
+
+class _LivePipe:
+    def __init__(self) -> None:
+        read_fd, write_fd = os.pipe()
+        self.reader = os.fdopen(read_fd, "r")
+        self._writer = os.fdopen(write_fd, "w")
+
+    def send(self, message: dict[str, Any]) -> None:
+        self._writer.write(f"{json.dumps(message)}\n")
+        self._writer.flush()
+
+    def close(self) -> None:
+        self._writer.close()
+        self.reader.close()
+
+
+def _invoke_message(runtime_id: str = "runtime-1") -> dict[str, Any]:
+    return _request(
+        "invoke",
+        {
+            "runtime_context": {"runtime_id": runtime_id},
+            "request": {"input": "hello"},
+        },
+    )
+
+
+def _start_message(runtime_id: str = "runtime-1") -> dict[str, Any]:
+    return _request("start", {"runtime_context": {"runtime_id": runtime_id}})
+
+
+async def test_cancel_interrupts_the_running_invocation_and_keeps_serving():
+    pipe = _LivePipe()
+    output_stream = io.StringIO()
+    started = asyncio.Event()
+    cleaned_up = asyncio.Event()
+
+    class Runtime:
+        async def start(self, _payload):
+            return None
+
+        async def invoke(self, _request, _context):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned_up.set()
+
+        async def stop(self):
+            return None
+
+    server = asyncio.create_task(
+        lifecycle._serve(
+            Runtime,
+            config_loader=None,
+            input_stream=pipe.reader,
+            output_stream=output_stream,
+        )
+    )
+    try:
+        pipe.send(_start_message())
+        pipe.send(_invoke_message())
+        await asyncio.wait_for(started.wait(), timeout=5)
+
+        pipe.send({"operation": "cancel", "payload": {"runtime_id": "runtime-1"}})
+        await asyncio.wait_for(cleaned_up.wait(), timeout=5)
+        pipe.send(_request("stop", {"runtime_id": "runtime-1"}))
+        await asyncio.wait_for(server, timeout=5)
+    finally:
+        pipe.close()
+
+    responses = [json.loads(line) for line in output_stream.getvalue().splitlines()]
+    assert [item["operation"] for item in responses] == ["start", "invoke", "stop"]
+    cancelled = responses[1]["outcome"]
+    assert cancelled["status"] == "succeeded"
+    assert cancelled["output"]["status"] == "cancelled"
+    assert cancelled["output"]["error"]["code"] == "lifecycle_invocation_cancelled"
+    assert responses[2]["outcome"]["status"] == "succeeded"
+
+
+async def test_cancel_lets_the_runtime_handle_the_next_invocation():
+    pipe = _LivePipe()
+    output_stream = io.StringIO()
+    started = asyncio.Event()
+    calls = 0
+
+    class Runtime:
+        async def start(self, _payload):
+            return None
+
+        async def invoke(self, _request, _context):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                started.set()
+                await asyncio.Event().wait()
+            return _success({"call": calls})
+
+        async def stop(self):
+            return None
+
+    server = asyncio.create_task(
+        lifecycle._serve(
+            Runtime,
+            config_loader=None,
+            input_stream=pipe.reader,
+            output_stream=output_stream,
+        )
+    )
+    try:
+        pipe.send(_start_message())
+        pipe.send(_invoke_message())
+        await asyncio.wait_for(started.wait(), timeout=5)
+        pipe.send({"operation": "cancel", "payload": {"runtime_id": "runtime-1"}})
+        pipe.send(_invoke_message())
+        pipe.send(_request("stop", {"runtime_id": "runtime-1"}))
+        await asyncio.wait_for(server, timeout=5)
+    finally:
+        pipe.close()
+
+    responses = [json.loads(line) for line in output_stream.getvalue().splitlines()]
+    assert [item["operation"] for item in responses] == [
+        "start",
+        "invoke",
+        "invoke",
+        "stop",
+    ]
+    assert responses[1]["outcome"]["output"]["status"] == "cancelled"
+    assert responses[2]["outcome"]["output"]["status"] == "succeeded"
+
+
+def test_cancel_without_a_running_invocation_is_ignored():
+    runtime_id = "runtime-1"
+    input_stream, output_stream = _streams(
+        [
+            _start_message(runtime_id),
+            {"operation": "cancel", "payload": {"runtime_id": runtime_id}},
+            _invoke_message(runtime_id),
+            _request("stop", {"runtime_id": runtime_id}),
+        ]
+    )
+
+    class Runtime:
+        async def start(self, _payload):
+            return None
+
+        async def invoke(self, _request, _context):
+            return _success({})
+
+        async def stop(self):
+            return None
+
+    lifecycle.serve(Runtime, input_stream=input_stream, output_stream=output_stream)
+
+    responses = [json.loads(line) for line in output_stream.getvalue().splitlines()]
+    assert [item["operation"] for item in responses] == ["start", "invoke", "stop"]
+    assert responses[1]["outcome"]["output"]["status"] == "succeeded"

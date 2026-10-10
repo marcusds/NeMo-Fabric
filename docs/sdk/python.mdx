@@ -637,10 +637,12 @@ Hermes Agent reuses one agent and session database, and Claude keeps one connect
 client. Harness-native identifiers remain adapter-internal.
 
 Cancelling the task that awaits `runtime.invoke(...)` interrupts a turn that is
-already running. The SDK terminates the adapter host process, so the harness
-stops within moments instead of finishing the turn, and then stops the runtime.
-The runtime is `STOPPED` afterwards, so start a new one for further turns. Use
-this to abandon a turn when a caller times out or disconnects.
+already running instead of waiting for it to finish, then stops the runtime. An
+adapter that declares `capabilities.cancellation` is asked to cancel the turn
+and report a `cancelled` result. For any other adapter, or if the adapter does
+not stop within a few seconds, the SDK terminates the adapter host process. The
+runtime is `STOPPED` afterwards, so start a new one for further turns. Use this
+to abandon a turn when a caller times out or disconnects.
 
 ## Native OpenAI Streaming
 

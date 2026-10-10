@@ -35,6 +35,8 @@ logger = logging.getLogger(__name__)
 
 _PI_ADAPTER_ID = "nvidia.fabric.pi"
 _PI_STREAM_CORRELATION_MODE = "pi_turn_window"
+_INTERRUPT_RETRY_SECONDS = 2.0
+_INTERRUPT_RETRY_INTERVAL_SECONDS = 0.05
 
 
 class RuntimeStatus(str, Enum):
@@ -172,9 +174,11 @@ class Runtime:
         merged below invocation overrides from ``RunRequest``. Concurrent turns
         on the same runtime are rejected.
 
-        Cancelling the awaiting task interrupts the turn by terminating the
-        adapter host, then stops the runtime. The runtime is ``STOPPED``
-        afterwards and cannot run further turns.
+        Cancelling the awaiting task interrupts the turn, then stops the
+        runtime. An adapter that declares ``capabilities.cancellation`` is asked
+        to cancel; otherwise, or if it does not stop promptly, the adapter host
+        is terminated. The runtime is ``STOPPED`` afterwards and cannot run
+        further turns.
 
         Args:
             input: JSON-compatible turn input.
@@ -255,8 +259,8 @@ class Runtime:
                     native_result = json.loads(encoded)
                     return native_result
 
-                def interrupt() -> None:
-                    native.cancel_runtime(
+                def interrupt() -> bool:
+                    return native.cancel_runtime(
                         json.dumps(self._plan.to_mapping()),
                         json.dumps(self._runtime.to_mapping()),
                     )
@@ -1001,9 +1005,22 @@ async def _call_blocking(func: Any, *, interrupt: Any = None) -> Any:
         return await asyncio.shield(worker)
     except asyncio.CancelledError as cancelled:
         if interrupt is not None and not worker.done():
-            await _settle(asyncio.create_task(asyncio.to_thread(interrupt)))
+            await _settle(
+                asyncio.create_task(_interrupt_until_signalled(worker, interrupt))
+            )
         await _settle(worker)
         raise cancelled
+
+
+async def _interrupt_until_signalled(worker: asyncio.Task[Any], interrupt: Any) -> None:
+    deadline = asyncio.get_running_loop().time() + _INTERRUPT_RETRY_SECONDS
+    while not worker.done() and asyncio.get_running_loop().time() < deadline:
+        try:
+            if await asyncio.to_thread(interrupt):
+                return
+        except Exception:
+            return
+        await asyncio.wait({worker}, timeout=_INTERRUPT_RETRY_INTERVAL_SECONDS)
 
 
 async def _settle(task: asyncio.Task[Any]) -> None:

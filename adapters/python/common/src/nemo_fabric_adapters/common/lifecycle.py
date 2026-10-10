@@ -22,8 +22,10 @@ from typing import Any
 from typing import Protocol
 from typing import TextIO
 
+from nemo_fabric_adapter_contract.models import AgentRunError
 from nemo_fabric_adapter_contract.models import AgentRunRequest
 from nemo_fabric_adapter_contract.models import AgentRunResult
+from nemo_fabric_adapter_contract.models import AgentRunStatus
 from nemo_fabric_adapter_contract.models import RuntimeContext
 
 
@@ -54,6 +56,7 @@ _OPENAI_STREAM_PATH = "/openai-stream"
 _OPENAI_STREAM_PROTOCOL = "fabric.openai_stream/v1alpha1"
 _OPENAI_STREAM_PROFILE = "openai.chat_completions.chunk/v1"
 _OPENAI_STREAM_RECORD_LIMIT = 1024 * 1024
+_INVOKE_OPERATIONS = frozenset({"invoke", "invoke_openai_stream"})
 _UINT32_MAX = (1 << 32) - 1
 _UINT64_MAX = (1 << 64) - 1
 
@@ -725,6 +728,99 @@ def _encode_response(
         )
 
 
+class _LineSource:
+    """Read lifecycle lines off-loop, keeping one read in flight across turns."""
+
+    def __init__(self, stream: TextIO) -> None:
+        self._stream = stream
+        self._pending: asyncio.Future[str] | None = None
+        self._stashed: list[str] = []
+
+    def future(self) -> asyncio.Future[str]:
+        if self._pending is None:
+            self._pending = asyncio.ensure_future(
+                asyncio.to_thread(self._stream.readline)
+            )
+        return self._pending
+
+    async def next(self) -> str:
+        if self._stashed:
+            return self._stashed.pop(0)
+        line = await self.future()
+        self._pending = None
+        return line
+
+    def stash(self, line: str) -> None:
+        self._stashed.append(line)
+
+
+def _is_cancel(line: str) -> bool:
+    try:
+        message = json.loads(line)
+    except ValueError:
+        return False
+    return isinstance(message, dict) and message.get("operation") == "cancel"
+
+
+def _cancelled_response(operation: str) -> dict[str, Any]:
+    result = AgentRunResult(
+        status=AgentRunStatus.CANCELLED,
+        output={},
+        error=AgentRunError(
+            code="lifecycle_invocation_cancelled",
+            message="Invocation was cancelled by the host",
+        ),
+    )
+    return _response(operation, output=result.to_mapping())
+
+
+async def _dispatch_invocation(
+    lines: _LineSource,
+    state: _HostState,
+    runtime_factory: RuntimeFactory,
+    operation: str,
+    payload: dict[str, Any],
+    message_runtime_id: str,
+    config_loader: ConfigLoader | None,
+) -> dict[str, Any]:
+    task = asyncio.ensure_future(
+        _dispatch(
+            state,
+            runtime_factory,
+            operation,
+            payload,
+            message_runtime_id,
+            config_loader,
+        )
+    )
+    cancelled = False
+    reading = True
+    while not task.done():
+        if not reading:
+            await asyncio.wait({task})
+            break
+        await asyncio.wait({task, lines.future()}, return_when=asyncio.FIRST_COMPLETED)
+        if task.done():
+            break
+        line = await lines.next()
+        if not line:
+            lines.stash(line)
+            reading = False
+        elif _is_cancel(line):
+            cancelled = True
+            task.cancel()
+            reading = False
+        else:
+            lines.stash(line)
+            reading = False
+    try:
+        return task.result()
+    except asyncio.CancelledError:
+        if not cancelled:
+            raise
+        return _cancelled_response(operation)
+
+
 async def _serve(
     runtime_factory: RuntimeFactory,
     *,
@@ -733,13 +829,16 @@ async def _serve(
     output_stream: TextIO,
 ) -> None:
     state = _HostState()
+    lines = _LineSource(input_stream)
     try:
         while True:
             # Keep this event loop alive while idle. Persistent SDK clients such
             # as ClaudeSDKClient own background tasks tied to this exact loop.
-            line = await asyncio.to_thread(input_stream.readline)
+            line = await lines.next()
             if not line:
                 break
+            if _is_cancel(line):
+                continue
 
             operation = "start"
             should_stop = False
@@ -750,14 +849,25 @@ async def _serve(
                 raw_operation = message.get("operation")
                 operation = raw_operation if isinstance(raw_operation, str) else "start"
                 payload, message_runtime_id = _validated_request(message, operation)
-                response = await _dispatch(
-                    state,
-                    runtime_factory,
-                    operation,
-                    payload,
-                    message_runtime_id,
-                    config_loader,
-                )
+                if operation in _INVOKE_OPERATIONS:
+                    response = await _dispatch_invocation(
+                        lines,
+                        state,
+                        runtime_factory,
+                        operation,
+                        payload,
+                        message_runtime_id,
+                        config_loader,
+                    )
+                else:
+                    response = await _dispatch(
+                        state,
+                        runtime_factory,
+                        operation,
+                        payload,
+                        message_runtime_id,
+                        config_loader,
+                    )
                 should_stop = operation == "stop"
             except LifecycleError as error:
                 if (

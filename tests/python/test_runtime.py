@@ -1056,6 +1056,40 @@ async def test_cancelling_invoke_interrupts_native_work_before_it_finishes(
     assert runtime.status is RuntimeStatus.STOPPED
 
 
+async def test_cancelling_invoke_retries_until_the_turn_is_in_flight(
+    mock_native: MagicMock,
+):
+    started = threading.Event()
+    release = threading.Event()
+    invoke = mock_native.invoke_runtime.side_effect
+
+    def blocking_invoke(*args: Any) -> str:
+        started.set()
+        assert release.wait(timeout=5)
+        return invoke(*args)
+
+    answers = iter([False, False, True])
+
+    def cancel(*_: Any) -> bool:
+        answer = next(answers)
+        if answer:
+            release.set()
+        return answer
+
+    mock_native.invoke_runtime.side_effect = blocking_invoke
+    mock_native.cancel_runtime.side_effect = cancel
+    runtime = _runtime_wrapper(mock_native)
+    turn = asyncio.create_task(runtime.invoke(input="hello"))
+    assert await _wait_for(started)
+
+    turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(turn, timeout=2)
+
+    assert mock_native.cancel_runtime.call_count == 3
+    assert runtime.status is RuntimeStatus.STOPPED
+
+
 async def test_cancelling_invoke_still_stops_when_interrupt_fails(
     mock_native: MagicMock,
 ):
