@@ -101,10 +101,18 @@ class InvokeStream:
 
         return await asyncio.shield(self._task)
 
-    async def aclose(self) -> None:
-        """Stop iteration and drain this turn without cancelling the invocation."""
+    async def aclose(self, *, cancel: bool = False) -> None:
+        """Stop iteration and drain this turn.
+
+        Args:
+            cancel: Interrupt the running turn instead of waiting for it to
+                finish. The runtime is stopped as it is when ``invoke()`` is
+                cancelled.
+        """
 
         self._closed = True
+        if cancel and not self._task.done():
+            self._task.cancel()
         await self._finalize()
         if not self._task.done():
             try:

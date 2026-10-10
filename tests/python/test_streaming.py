@@ -31,6 +31,7 @@ from nemo_fabric import (
     RelayObservabilityConfig,
     RunRequest,
     RunResult,
+    RuntimeStatus,
 )
 from nemo_fabric import client as client_mod
 from nemo_fabric import streaming as streaming_mod
@@ -1254,6 +1255,33 @@ async def test_cancelled_aclose_keeps_turn_active_and_result_awaitable(
     release.set()
     await stream.aclose()
     assert (await stream.result()).status == "succeeded"
+    await runtime.stop()
+
+
+async def test_aclose_with_cancel_interrupts_the_running_turn(
+    native_client: Fabric,
+    mock_native: MagicMock,
+):
+    started = threading.Event()
+    release = threading.Event()
+
+    def invoke(plan_json: str, runtime_json: str, request_json: str) -> str:
+        started.set()
+        assert release.wait(timeout=5)
+        return json.dumps(_result(json.loads(request_json), json.loads(runtime_json)))
+
+    mock_native.invoke_runtime.side_effect = invoke
+    mock_native.cancel_runtime.side_effect = lambda *_: release.set()
+    runtime = await native_client.start_runtime(_config(relay=True), streaming=True)
+    stream = runtime.invoke_stream(input="hello")
+    assert await _wait_for(started)
+
+    await asyncio.wait_for(stream.aclose(cancel=True), timeout=3)
+
+    mock_native.cancel_runtime.assert_called_once()
+    with pytest.raises(asyncio.CancelledError):
+        await stream.result()
+    assert runtime.status is RuntimeStatus.STOPPED
     await runtime.stop()
 
 

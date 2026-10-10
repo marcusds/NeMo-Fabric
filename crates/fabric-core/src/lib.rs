@@ -45,7 +45,7 @@ pub use runtime::{
     OpenAiStreamInvocation, OpenAiStreamProfile, OpenAiStreamProtocolVersion, OpenAiStreamRecord,
     OpenAiStreamSink, OpenAiStreamTransport, RunRequest, RunResult, RunStatus, RunUsage,
     RuntimeContext, RuntimeHandle, RuntimeTelemetryContext, ServiceHandle, ServiceOwnership,
-    ServiceReference, TelemetryRef, attach_service, invoke_openai_stream, invoke_runtime,
+    ServiceReference, TelemetryRef, attach_service, cancel_runtime, invoke_openai_stream, invoke_runtime,
     prepare_environment, prepare_service, release_service, run_plan, start_runtime,
     start_runtime_with_service, stop_runtime,
 };

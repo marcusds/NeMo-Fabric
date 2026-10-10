@@ -1029,6 +1029,63 @@ async def test_cancelling_invoke_waits_for_native_work_and_stops_runtime(
     mock_native.stop_runtime.assert_called_once()
 
 
+async def test_cancelling_invoke_interrupts_native_work_before_it_finishes(
+    mock_native: MagicMock,
+):
+    started = threading.Event()
+    release = threading.Event()
+    invoke = mock_native.invoke_runtime.side_effect
+
+    def blocking_invoke(*args: Any) -> str:
+        started.set()
+        assert release.wait(timeout=5)
+        return invoke(*args)
+
+    mock_native.invoke_runtime.side_effect = blocking_invoke
+    mock_native.cancel_runtime.side_effect = lambda *_: release.set()
+    runtime = _runtime_wrapper(mock_native)
+    turn = asyncio.create_task(runtime.invoke(input="hello"))
+    assert await _wait_for(started)
+
+    turn.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(turn, timeout=2)
+
+    mock_native.cancel_runtime.assert_called_once()
+    mock_native.stop_runtime.assert_called_once()
+    assert runtime.status is RuntimeStatus.STOPPED
+
+
+async def test_cancelling_invoke_still_stops_when_interrupt_fails(
+    mock_native: MagicMock,
+):
+    started = threading.Event()
+    release = threading.Event()
+    invoke = mock_native.invoke_runtime.side_effect
+
+    def blocking_invoke(*args: Any) -> str:
+        started.set()
+        assert release.wait(timeout=5)
+        return invoke(*args)
+
+    mock_native.invoke_runtime.side_effect = blocking_invoke
+    mock_native.cancel_runtime.side_effect = RuntimeError("cannot cancel")
+    runtime = _runtime_wrapper(mock_native)
+    turn = asyncio.create_task(runtime.invoke(input="hello"))
+    assert await _wait_for(started)
+
+    turn.cancel()
+    await asyncio.sleep(0.05)
+    assert not turn.done()
+
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await turn
+
+    assert runtime.status is RuntimeStatus.STOPPED
+    mock_native.stop_runtime.assert_called_once()
+
+
 async def test_cancelling_start_stops_the_completed_native_runtime(
     native_client: Fabric,
     mock_native: MagicMock,

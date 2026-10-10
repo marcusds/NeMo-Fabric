@@ -69,6 +69,8 @@ const DEFAULT_PYTHON: &str = "python.exe";
 static TEST_STOPPED_AGENTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 static LOCAL_HOSTS: LazyLock<Mutex<BTreeMap<String, Arc<Mutex<LocalAdapterHost>>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
+static LOCAL_HOST_CHILDREN: LazyLock<Mutex<BTreeMap<String, Arc<Mutex<Child>>>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
 static LOCAL_SERVICES: LazyLock<Mutex<BTreeMap<String, Arc<Mutex<LocalServiceRecord>>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
@@ -804,7 +806,7 @@ struct RelayRuntimeConfig {
 }
 
 struct LocalAdapterHost {
-    child: Child,
+    child: Arc<Mutex<Child>>,
     stdin: ChildStdin,
     responses: Receiver<std::result::Result<String, String>>,
     command: String,
@@ -1240,6 +1242,50 @@ pub fn stop_runtime(plan: &RunPlan, runtime: &RuntimeHandle) -> Result<Vec<Fabri
     })
 }
 
+/// Interrupt a runtime's in-flight invocation by killing its adapter host.
+///
+/// Safe to call from another thread while `invoke_runtime` is running. The
+/// pending invocation fails with `host_crashed`, and the runtime must still be
+/// released with `stop_runtime`. Idempotent; a stopped runtime is a no-op.
+pub fn cancel_runtime(plan: &RunPlan, runtime: &RuntimeHandle) -> Result<()> {
+    validate_runtime_handle(plan, runtime)?;
+    if !uses_local_host(plan) {
+        return Err(FabricError::UnsupportedRuntimeAdapter {
+            harness: runtime.harness.clone(),
+            adapter_kind: runtime.adapter_kind,
+        });
+    }
+    let Some(child) = local_host_children().get(&runtime.runtime_id).cloned() else {
+        return Ok(());
+    };
+    let mut child = lock_child(&child);
+    if child.try_wait().map_err(host_cancel_error(runtime))?.is_some() {
+        return Ok(());
+    }
+    if let Err(source) = child.kill()
+        && child
+            .try_wait()
+            .map_err(host_cancel_error(runtime))?
+            .is_none()
+    {
+        return Err(host_cancel_error(runtime)(source));
+    }
+    child.wait().map_err(host_cancel_error(runtime))?;
+    Ok(())
+}
+
+fn host_cancel_error(runtime: &RuntimeHandle) -> impl Fn(std::io::Error) -> FabricError + '_ {
+    |source| {
+        lifecycle_error(
+            AdapterLifecycleOperation::Invoke,
+            &runtime.runtime_id,
+            "host_cancel_failed",
+            format!("persistent local adapter host could not be cancelled: {source}"),
+            "",
+        )
+    }
+}
+
 fn uses_local_host(plan: &RunPlan) -> bool {
     matches!(
         adapter_kind(plan),
@@ -1511,6 +1557,7 @@ impl RuntimeAdapter for LocalHostAdapter {
         let Some(host) = local_hosts().remove(&runtime.runtime_id) else {
             return Ok(vec![local_host_stop_event(runtime, true, false)]);
         };
+        local_host_children().remove(&runtime.runtime_id);
         let mut host = host.lock().unwrap_or_else(|error| error.into_inner());
         let request =
             AdapterLifecycleRequest::new(AdapterLifecycleRequestKind::Stop(AdapterLifecycleStop {
@@ -1615,6 +1662,7 @@ fn start_local_runtime(
         let _ = remove_local_host_files(&host);
         return Err(error);
     }
+    local_host_children().insert(runtime.runtime_id.clone(), Arc::clone(&host.child));
     local_hosts().insert(runtime.runtime_id.clone(), Arc::new(Mutex::new(host)));
     Ok(runtime)
 }
@@ -1795,7 +1843,7 @@ fn run_local_host_invocation_with_timeout(
                     output,
                     stderr,
                     host_guard.command.clone(),
-                    host_guard.child.id(),
+                    lock_child(&host_guard.child).id(),
                     artifacts,
                     relay_config,
                     fabric_home,
@@ -1987,6 +2035,7 @@ fn invalidate_timed_out_local_host(
             hosts.remove(runtime_id);
         }
     }
+    local_host_children().remove(runtime_id);
 
     let _ = terminate_local_host(host);
     let _ = remove_local_host_files(host);
@@ -2255,7 +2304,7 @@ fn spawn_local_host(
         });
     }
     Ok(LocalAdapterHost {
-        child,
+        child: Arc::new(Mutex::new(child)),
         stdin,
         responses,
         command: command_display,
@@ -2337,7 +2386,7 @@ fn exchange_lifecycle_message(
     timeout: Duration,
 ) -> Result<Value> {
     let operation = request.operation();
-    if let Some(status) = host.child.try_wait().map_err(|source| {
+    if let Some(status) = lock_child(&host.child).try_wait().map_err(|source| {
         lifecycle_error(
             operation,
             runtime_id,
@@ -2364,7 +2413,7 @@ fn exchange_lifecycle_message(
         .write_all(message.as_bytes())
         .and_then(|()| host.stdin.flush())
     {
-        let code = match (source.kind(), host.child.try_wait()) {
+        let code = match (source.kind(), lock_child(&host.child).try_wait()) {
             // A closed lifecycle pipe is terminal even when the child exit
             // status is not observable yet.
             (ErrorKind::BrokenPipe, _) | (_, Ok(Some(_))) => "host_crashed",
@@ -2511,10 +2560,20 @@ fn take_local_host_stderr(host: &mut LocalAdapterHost) -> String {
     String::from_utf8_lossy(&bytes[start..]).into_owned()
 }
 
+fn lock_child(child: &Mutex<Child>) -> std::sync::MutexGuard<'_, Child> {
+    child.lock().unwrap_or_else(|error| error.into_inner())
+}
+
+fn local_host_children() -> std::sync::MutexGuard<'static, BTreeMap<String, Arc<Mutex<Child>>>> {
+    LOCAL_HOST_CHILDREN
+        .lock()
+        .unwrap_or_else(|error| error.into_inner())
+}
+
 fn terminate_local_host(host: &mut LocalAdapterHost) -> std::io::Result<()> {
     let deadline = Instant::now() + LOCAL_HOST_EXIT_GRACE;
     loop {
-        if host.child.try_wait()?.is_some() {
+        if lock_child(&host.child).try_wait()?.is_some() {
             return Ok(());
         }
         if Instant::now() >= deadline {
@@ -2523,12 +2582,13 @@ fn terminate_local_host(host: &mut LocalAdapterHost) -> std::io::Result<()> {
         thread::sleep(Duration::from_millis(10));
     }
 
-    if let Err(source) = host.child.kill()
-        && host.child.try_wait()?.is_none()
+    let mut child = lock_child(&host.child);
+    if let Err(source) = child.kill()
+        && child.try_wait()?.is_none()
     {
         return Err(source);
     }
-    host.child.wait()?;
+    child.wait()?;
     Ok(())
 }
 
@@ -4289,6 +4349,8 @@ for line in sys.stdin:
             host.lock()
                 .expect("local host")
                 .child
+                .lock()
+                .expect("host child")
                 .try_wait()
                 .expect("inspect timed-out host")
                 .is_some(),
@@ -4477,6 +4539,68 @@ for line in sys.stdin:
         ));
 
         stop_runtime(&plan, &runtime).expect("stop local host");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn cancel_runtime_interrupts_an_in_flight_invocation() {
+        let (root, plan) = local_host_plan("invoke_timeout");
+        let runtime = start_runtime(&plan).expect("start local host");
+        let host = local_hosts()
+            .get(&runtime.runtime_id)
+            .cloned()
+            .expect("active local host");
+        let stderr_path = host.lock().expect("local host").stderr_path.clone();
+
+        let invoke_plan = plan.clone();
+        let invoke_handle = runtime.clone();
+        let invocation = thread::spawn(move || {
+            run_local_host_adapter_with_timeout(
+                &invoke_plan,
+                &invoke_handle,
+                RunRequest::text("hang"),
+                Duration::from_secs(60),
+            )
+        });
+        let accepted_deadline = Instant::now() + Duration::from_secs(2);
+        while !fs::read_to_string(&stderr_path)
+            .expect("read host stderr")
+            .contains("invoke accepted without response")
+        {
+            assert!(
+                Instant::now() < accepted_deadline,
+                "invocation was not accepted"
+            );
+            thread::sleep(Duration::from_millis(10));
+        }
+
+        let cancelled_at = Instant::now();
+        cancel_runtime(&plan, &runtime).expect("cancel in-flight invocation");
+        let error = invocation
+            .join()
+            .expect("invocation thread")
+            .expect_err("cancelled invocation must fail");
+        assert!(
+            cancelled_at.elapsed() < Duration::from_secs(10),
+            "cancel must not wait for the invocation"
+        );
+        assert!(matches!(
+            error,
+            FabricError::AdapterLifecycleOperation { code, .. } if code == "host_crashed"
+        ));
+        assert!(
+            lock_child(&host.lock().expect("local host").child)
+                .try_wait()
+                .expect("inspect cancelled host")
+                .is_some(),
+            "cancelled host process must be terminated"
+        );
+
+        cancel_runtime(&plan, &runtime).expect("cancel is idempotent");
+        let stopped = stop_runtime(&plan, &runtime).expect("stop after cancel");
+        assert_eq!(stopped[0].metadata["host_crashed"], true);
+        cancel_runtime(&plan, &runtime).expect("cancel after stop is a no-op");
+
         let _ = fs::remove_dir_all(root);
     }
 
@@ -4824,6 +4948,8 @@ for line in sys.stdin:
             host.lock()
                 .expect("local host")
                 .child
+                .lock()
+                .expect("host child")
                 .try_wait()
                 .expect("inspect crashed host")
                 .is_none(),

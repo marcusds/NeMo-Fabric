@@ -636,6 +636,12 @@ on one live thread, Deep Agents invokes one compiled graph and checkpointer,
 Hermes Agent reuses one agent and session database, and Claude keeps one connected SDK
 client. Harness-native identifiers remain adapter-internal.
 
+Cancelling the task that awaits `runtime.invoke(...)` interrupts a turn that is
+already running. The SDK terminates the adapter host process, so the harness
+stops within moments instead of finishing the turn, and then stops the runtime.
+The runtime is `STOPPED` afterwards, so start a new one for further turns. Use
+this to abandon a turn when a caller times out or disconnects.
+
 ## Native OpenAI Streaming
 
 Use `Runtime.invoke_openai_stream()` when the selected adapter provides native
@@ -771,7 +777,9 @@ Streaming has the following v0.1 constraints:
   `await stream.aclose()` before starting another turn.
 - Breaking an `async for` loop does not finalize the stream. Call
   `await stream.aclose()` explicitly. It waits for the invocation to finish and
-  discards unread records; it does not cancel the harness turn.
+  discards unread records. Call `await stream.aclose(cancel=True)` to interrupt
+  the running turn instead; the runtime is then stopped, as when `invoke()` is
+  cancelled.
 - The end of async iteration only means that no more ATOF records are available.
   It does not indicate invocation success. Always await `stream.result()`.
   Invocation exceptions raise from that call, while harness-reported failures

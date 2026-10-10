@@ -246,6 +246,15 @@ fn stop_runtime(py: Python<'_>, plan_json: String, runtime_json: String) -> PyRe
     to_json(&events)
 }
 
+/// Interrupt a runtime's in-flight invocation by killing its adapter host.
+#[pyfunction]
+fn cancel_runtime(py: Python<'_>, plan_json: String, runtime_json: String) -> PyResult<()> {
+    let plan = parse_run_plan(plan_json)?;
+    let runtime = parse_runtime_handle(runtime_json)?;
+    py.detach(|| nemo_fabric_core::cancel_runtime(&plan, &runtime))
+        .map_err(to_py_error)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("ServiceInUseError", m.py().get_type::<ServiceInUseError>())?;
@@ -262,6 +271,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(invoke_runtime, m)?)?;
     m.add_function(wrap_pyfunction!(invoke_openai_stream, m)?)?;
     m.add_function(wrap_pyfunction!(stop_runtime, m)?)?;
+    m.add_function(wrap_pyfunction!(cancel_runtime, m)?)?;
     Ok(())
 }
 

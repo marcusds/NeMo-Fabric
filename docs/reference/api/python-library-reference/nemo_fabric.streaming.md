@@ -30,10 +30,16 @@ Consume the final normalized result separately with :meth:`result`. If iteration
 ### <kbd>method</kbd> `aclose`
 
 ```python
-async def aclose() -> None
+async def aclose(cancel: 'bool' = False) -> None
 ```
 
-Stop iteration and drain this turn without cancelling the invocation.
+Stop iteration and drain this turn.
+
+
+
+**Args:**
+
+ - <b>`cancel`</b>:  Interrupt the running turn instead of waiting for it to finish. The runtime is stopped as it is when ``invoke()`` is cancelled.
 
 ---
 

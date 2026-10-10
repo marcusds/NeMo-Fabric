@@ -172,6 +172,10 @@ class Runtime:
         merged below invocation overrides from ``RunRequest``. Concurrent turns
         on the same runtime are rejected.
 
+        Cancelling the awaiting task interrupts the turn by terminating the
+        adapter host, then stops the runtime. The runtime is ``STOPPED``
+        afterwards and cannot run further turns.
+
         Args:
             input: JSON-compatible turn input.
             request: Complete validated ``RunRequest``.
@@ -251,7 +255,13 @@ class Runtime:
                     native_result = json.loads(encoded)
                     return native_result
 
-                result = await _call_blocking(invoke)
+                def interrupt() -> None:
+                    native.cancel_runtime(
+                        json.dumps(self._plan.to_mapping()),
+                        json.dumps(self._runtime.to_mapping()),
+                    )
+
+                result = await _call_blocking(invoke, interrupt=interrupt)
                 typed_result = RunResult.from_mapping(result)
             except asyncio.CancelledError:
                 if absorb_result and native_result is not None:
@@ -985,18 +995,24 @@ async def _run_native_lifecycle(
         raise _runtime_error(error, stage="run") from error
 
 
-async def _call_blocking(func: Any) -> Any:
+async def _call_blocking(func: Any, *, interrupt: Any = None) -> Any:
     worker = asyncio.create_task(asyncio.to_thread(func))
     try:
         return await asyncio.shield(worker)
     except asyncio.CancelledError as cancelled:
-        while not worker.done():
-            try:
-                await asyncio.shield(worker)
-            except asyncio.CancelledError:
-                continue
-        try:
-            worker.result()
-        except BaseException:
-            pass
+        if interrupt is not None and not worker.done():
+            await _settle(asyncio.create_task(asyncio.to_thread(interrupt)))
+        await _settle(worker)
         raise cancelled
+
+
+async def _settle(task: asyncio.Task[Any]) -> None:
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            continue
+        except BaseException:
+            break
+    if not task.cancelled():
+        task.exception()
